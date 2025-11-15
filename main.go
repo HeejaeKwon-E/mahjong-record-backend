@@ -29,6 +29,7 @@ func main() {
 
 	r := gin.Default()
 	api.RegisterRoutes(r, svc)
+	api.RegisterWebRoutes(r)
 
 	if err := r.Run(":8080"); err != nil {
 		log.Fatal(err)

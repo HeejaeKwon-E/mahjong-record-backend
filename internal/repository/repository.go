@@ -73,14 +73,13 @@ func (r *Repository) CreatePlayer(name string) (domain.Player, error) {
 		return domain.Player{}, err
 	}
 
-	var p domain.Player
 	row := r.db.QueryRow(`SELECT id, name, created_at FROM players WHERE id = ?`, id)
+	var p domain.Player
 	var createdAtStr string
 	if err := row.Scan(&p.ID, &p.Name, &createdAtStr); err != nil {
 		return domain.Player{}, err
 	}
-	t, _ := time.Parse(time.RFC3339Nano, createdAtStr)
-	p.CreatedAt = t
+	p.CreatedAt = parseSQLiteTime(createdAtStr)
 
 	return p, nil
 }
@@ -110,12 +109,17 @@ func (r *Repository) CreateRound(date string, ranking []int) (int64, error) {
 		return 0, err
 	}
 
+	stmt, err := tx.Prepare(
+		`INSERT INTO round_results (round_id, player_id, rank) VALUES (?, ?, ?)`,
+	)
+	if err != nil {
+		return 0, err
+	}
+	defer stmt.Close()
+
 	for i, pid := range ranking {
 		rank := i + 1
-		if _, err := tx.Exec(
-			`INSERT INTO round_results (round_id, player_id, rank) VALUES (?, ?, ?)`,
-			roundID, pid, rank,
-		); err != nil {
+		if _, err := stmt.Exec(roundID, pid, rank); err != nil {
 			return 0, err
 		}
 	}
@@ -137,9 +141,9 @@ func (r *Repository) CreateRound(date string, ranking []int) (int64, error) {
 func (r *Repository) GetRoundsByDate(date string) ([]domain.Round, error) {
 	rows, err := r.db.Query(
 		`SELECT id, date, created_at 
-		 FROM rounds 
-		 WHERE date = ? 
-		 ORDER BY created_at DESC, id DESC`,
+         FROM rounds 
+         WHERE date = ? 
+         ORDER BY created_at DESC, id DESC`,
 		date,
 	)
 	if err != nil {
@@ -159,30 +163,26 @@ func (r *Repository) GetRoundsByDate(date string) ([]domain.Round, error) {
 			return nil, err
 		}
 
-		// 라운드별 결과 가져오기
+		// 라운드별 등수 가져오기
 		resRows, err := r.db.Query(
 			`SELECT player_id, rank 
-			 FROM round_results 
-			 WHERE round_id = ? 
-			 ORDER BY rank ASC`,
+             FROM round_results 
+             WHERE round_id = ? 
+             ORDER BY rank ASC`,
 			id,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		var ranking = make([]int, 0, 4)
+		var ranking []int
 		for resRows.Next() {
-			var (
-				playerID int
-				rank     int
-			)
-			if err := resRows.Scan(&playerID, &rank); err != nil {
+			var pid, rank int
+			if err := resRows.Scan(&pid, &rank); err != nil {
 				resRows.Close()
 				return nil, err
 			}
-			// rank 순서대로 나오기 때문에 그냥 append
-			ranking = append(ranking, playerID)
+			ranking = append(ranking, pid)
 		}
 		resRows.Close()
 
@@ -194,9 +194,42 @@ func (r *Repository) GetRoundsByDate(date string) ([]domain.Round, error) {
 		})
 	}
 
-	if err := rows.Err(); err != nil {
+	return rounds, rows.Err()
+}
+
+// GetPlayersByDate는 특정 날짜에 한 번이라도 라운드에 등장한 플레이어들을 반환합니다.
+//
+// SELECT DISTINCT p.*
+// FROM players p
+// JOIN round_results rr ON p.id = rr.player_id
+// JOIN rounds r ON rr.round_id = r.id
+// WHERE r.date = ?
+func (r *Repository) GetPlayersByDate(date string) ([]domain.Player, error) {
+	rows, err := r.db.Query(
+		`SELECT DISTINCT p.id, p.name, p.created_at
+         FROM players p
+         JOIN round_results rr ON p.id = rr.player_id
+         JOIN rounds r ON rr.round_id = r.id
+         WHERE r.date = ?
+         ORDER BY p.id`,
+		date,
+	)
+	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	return rounds, nil
+	var players []domain.Player
+
+	for rows.Next() {
+		var p domain.Player
+		var createdAtStr string
+		if err := rows.Scan(&p.ID, &p.Name, &createdAtStr); err != nil {
+			return nil, err
+		}
+		p.CreatedAt = parseSQLiteTime(createdAtStr)
+		players = append(players, p)
+	}
+
+	return players, rows.Err()
 }

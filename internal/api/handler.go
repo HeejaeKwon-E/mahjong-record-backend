@@ -76,3 +76,22 @@ func GetRoundsByDateHandler(svc *service.Service) gin.HandlerFunc {
 		c.JSON(http.StatusOK, rounds)
 	}
 }
+
+// GET /api/players/by-date?date=YYYY-MM-DD
+func GetPlayersByDateHandler(svc *service.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		date := c.Query("date")
+		if date == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "date query is required"})
+			return
+		}
+
+		players, err := svc.GetPlayersByDate(date)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, players)
+	}
+}

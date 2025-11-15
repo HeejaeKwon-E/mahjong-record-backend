@@ -67,3 +67,11 @@ func (s *Service) GetRoundsByDate(date string) ([]domain.Round, error) {
 	}
 	return s.repo.GetRoundsByDate(date)
 }
+
+// GetPlayersByDate는 특정 날짜에 플레이한 플레이어들을 반환합니다.
+func (s *Service) GetPlayersByDate(date string) ([]domain.Player, error) {
+	if date == "" {
+		return nil, fmt.Errorf("date is required")
+	}
+	return s.repo.GetPlayersByDate(date)
+}
