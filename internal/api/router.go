@@ -21,14 +21,13 @@ func RegisterRoutes(r *gin.Engine, svc *service.Service) {
 		{
 			players.GET("", GetPlayersHandler(svc))
 			players.POST("", CreatePlayerHandler(svc))
-			//Todo: unuse now
 			players.GET("/by-date", GetPlayersByDateHandler(svc))
 		}
 
 		rounds := api.Group("/rounds")
 		{
 			rounds.POST("", CreateRoundHandler(svc))
-			rounds.GET("", GetRoundsByDateHandler(svc)) // 🔹 추가
+			rounds.GET("/by-date", GetRoundsByDateHandler(svc)) // 🔹 추가
 			// TODO: GET /rounds?date=...
 		}
 	}
