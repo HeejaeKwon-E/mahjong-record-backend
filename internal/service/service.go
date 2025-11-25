@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"mahjong-stat-back/internal/domain"
 	"mahjong-stat-back/internal/repository"
+	"regexp"
+	"time"
 )
 
 // Service는 마작 기록 도메인 로직을 담당합니다.
@@ -27,14 +29,23 @@ func (s *Service) GetPlayers() ([]domain.Player, error) {
 	return s.repo.GetAllPlayers()
 }
 
+func isValidPlayerName(name string) bool {
+	re := regexp.MustCompile(`^[가-힣]{1,5}\d{2}$`)
+	return re.MatchString(name)
+}
+
 // AddPlayer는 새 플레이어를 추가합니다.
 //
 // 비즈니스 룰:
 //   - 이름은 공백일 수 없음
-func (s *Service) AddPlayer(name string) (domain.Player, error) {
+func (s *Service) AddPlayer(name string) (*domain.Player, error) {
 	if name == "" {
-		return domain.Player{}, fmt.Errorf("name is required")
+		return &domain.Player{}, fmt.Errorf("name is required")
 	}
+	if !isValidPlayerName(name) {
+		return &domain.Player{}, fmt.Errorf("형식: 한글이름 + 2자리 연도")
+	}
+
 	// TODO: 중복 이름에 대한 비즈니스 룰을 여기서 처리할 수도 있음.
 	return s.repo.CreatePlayer(name)
 }
@@ -50,6 +61,15 @@ func (s *Service) AddRound(date string, ranking []int) (int64, error) {
 	if date == "" {
 		return 0, fmt.Errorf("date is required")
 	}
+	// 오늘 날짜
+	today := time.Now().Format("2006-01-02")
+
+	// 🔹 클라이언트가 보낸 date가 오늘이 아니면 거부
+	if date != today {
+		return 0, fmt.Errorf("라운드는 오늘 날짜에만 저장할 수 있습니다")
+	}
+	// 🔹 아예 서버 쪽에서 date를 강제로 오늘로 맞춰도 됨
+	date = today
 	return s.repo.CreateRound(date, ranking)
 }
 

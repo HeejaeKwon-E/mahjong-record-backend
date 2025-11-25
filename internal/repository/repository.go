@@ -23,7 +23,7 @@ func NewRepository(db *sql.DB) *Repository {
 }
 
 // 🔹 SQLite 날짜 문자열 파싱 헬퍼
-func parseSQLiteTime(s string) time.Time {
+func parseSQLiteTime(s string) *time.Time {
 	// SQLite DEFAULT CURRENT_TIMESTAMP → "2006-01-02 15:04:05"
 	layouts := []string{
 		time.RFC3339Nano,
@@ -31,10 +31,10 @@ func parseSQLiteTime(s string) time.Time {
 	}
 	for _, layout := range layouts {
 		if t, err := time.Parse(layout, s); err == nil {
-			return t
+			return &t
 		}
 	}
-	return time.Time{}
+	return &time.Time{}
 }
 
 // GetAllPlayers는 모든 플레이어를 조회합니다.
@@ -63,25 +63,25 @@ func (r *Repository) GetAllPlayers() ([]domain.Player, error) {
 }
 
 // CreatePlayer는 새로운 플레이어를 생성합니다.
-func (r *Repository) CreatePlayer(name string) (domain.Player, error) {
+func (r *Repository) CreatePlayer(name string) (*domain.Player, error) {
 	res, err := r.db.Exec(`INSERT INTO players (name) VALUES (?)`, name)
 	if err != nil {
-		return domain.Player{}, err
+		return &domain.Player{}, err
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return domain.Player{}, err
+		return &domain.Player{}, err
 	}
 
 	row := r.db.QueryRow(`SELECT id, name, created_at FROM players WHERE id = ?`, id)
 	var p domain.Player
 	var createdAtStr string
 	if err := row.Scan(&p.ID, &p.Name, &createdAtStr); err != nil {
-		return domain.Player{}, err
+		return &domain.Player{}, err
 	}
 	p.CreatedAt = parseSQLiteTime(createdAtStr)
 
-	return p, nil
+	return &p, nil
 }
 
 // CreateRound는 라운드와 해당 결과를 함께 생성합니다.
