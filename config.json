@@ -1,4 +1,4 @@
 {
-  "mode": "release",
+  "mode": "debug",
   "port": 8080
 }

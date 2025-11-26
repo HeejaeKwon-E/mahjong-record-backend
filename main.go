@@ -10,6 +10,7 @@ import (
 	"mahjong-stat-back/internal/schema"
 	"mahjong-stat-back/internal/service"
 	"os"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/mattn/go-sqlite3"
@@ -21,13 +22,28 @@ type Config struct {
 }
 
 func loadConfig() (*Config, error) {
-	f, err := os.ReadFile("config.json")
+	// 현재 작업 디렉토리 가져오기
+	wd, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
+
+	// OS에 맞게 경로 결합
+	configPath := filepath.Join(wd, "config.json")
+
+	// 파일 읽기
+	f, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// JSON 파싱
 	var cfg Config
-	err = json.Unmarshal(f, &cfg)
-	return &cfg, err
+	if err := json.Unmarshal(f, &cfg); err != nil {
+		return nil, err
+	}
+
+	return &cfg, nil
 }
 
 func main() {
