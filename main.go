@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type Config struct {
@@ -52,7 +52,7 @@ func main() {
 		panic(err)
 	}
 
-	db, err := sql.Open("sqlite3", "./mahjong.db?_foreign_keys=on")
+	db, err := sql.Open("sqlite", "./mahjong.db?_foreign_keys=on")
 	if err != nil {
 		log.Fatal(err)
 	}
