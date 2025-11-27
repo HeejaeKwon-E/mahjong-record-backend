@@ -60,3 +60,4 @@ ehthumbs.db
 
 *.db
 main
+web/*
