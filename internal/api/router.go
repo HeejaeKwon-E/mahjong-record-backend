@@ -27,8 +27,8 @@ func RegisterRoutes(r *gin.Engine, svc *service.Service) {
 		rounds := api.Group("/rounds")
 		{
 			rounds.POST("", CreateRoundHandler(svc))
-			rounds.GET("/by-date", GetRoundsByDateHandler(svc)) // 🔹 추가
-			// TODO: GET /rounds?date=...
+			rounds.GET("/by-date", GetRoundsByDateHandler(svc))
+			rounds.DELETE("/:id", DeleteRoundHandler(svc))
 		}
 	}
 }

@@ -95,3 +95,20 @@ func (s *Service) GetPlayersByDate(date string) ([]domain.Player, error) {
 	}
 	return s.repo.GetPlayersByDate(date)
 }
+
+// DeleteRound 는 라운드를 삭제하고 삭제된 라운드 정보를 반환합니다.
+//
+// 매개변수:
+//   - id: 삭제할 라운드 ID
+//
+// 반환값:
+//   - *domain.Round: 삭제된 라운드 정보
+//   - error: 에러 정보 (존재하지 않는 ID일 경우 sql.ErrNoRows)
+func (s *Service) DeleteRound(id int) (*domain.Round, error) {
+	round, err := s.repo.DeleteRound(id)
+	if err != nil {
+		// 여기서 sql.ErrNoRows, DB 에러 등을 그대로 위로 올림
+		return &domain.Round{}, err
+	}
+	return round, nil
+}

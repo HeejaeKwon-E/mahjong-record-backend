@@ -233,3 +233,75 @@ func (r *Repository) GetPlayersByDate(date string) ([]domain.Player, error) {
 
 	return players, rows.Err()
 }
+
+// DeleteRound는 라운드를 삭제하고 삭제된 라운드 정보를 반환합니다.
+//
+// 매개변수:
+//   - id: 삭제할 라운드 ID
+//
+// 반환값:
+//   - *domain.Round: 삭제된 라운드 정보
+//   - error: 에러 정보 (존재하지 않는 ID일 경우 sql.ErrNoRows)
+func (r *Repository) DeleteRound(id int) (*domain.Round, error) {
+	// 1) rounds 테이블에서 기본 정보 조회
+	var round domain.Round
+	var createdAtStr string
+
+	row := r.db.QueryRow(`
+        SELECT id, date, created_at
+        FROM rounds
+        WHERE id = ?
+    `, id)
+
+	if err := row.Scan(
+		&round.ID,
+		&round.Date,
+		&createdAtStr,
+	); err != nil {
+		return &domain.Round{}, err // sql.ErrNoRows 포함
+	}
+
+	// created_at 파싱
+	round.CreatedAt = parseSQLiteTime(createdAtStr)
+
+	// 2) round_results 테이블에서 ranking 조회 (1~4등 순서대로)
+	rows, err := r.db.Query(`
+        SELECT player_id
+        FROM round_results
+        WHERE round_id = ?
+        ORDER BY rank ASC
+    `, id)
+
+	if err != nil {
+		return &domain.Round{}, err
+	}
+	defer rows.Close()
+
+	ranking := []int{}
+	for rows.Next() {
+		var pid int
+		if err := rows.Scan(&pid); err != nil {
+			return &domain.Round{}, err
+		}
+		ranking = append(ranking, pid)
+	}
+	round.Ranking = ranking
+
+	// 3) 삭제 수행 (rounds 삭제 → round_results는 CASCADE 로 자동삭제)
+	res, err := r.db.Exec(`DELETE FROM rounds WHERE id = ?`, id)
+	if err != nil {
+		return &domain.Round{}, err
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return &domain.Round{}, err
+	}
+
+	if affected == 0 {
+		return &domain.Round{}, sql.ErrNoRows
+	}
+
+	// 4) 삭제된 라운드 정보 반환
+	return &round, nil
+}

@@ -1,9 +1,13 @@
 package api
 
 import (
+	"database/sql"
+	"errors"
+	"log"
 	"mahjong-stat-back/internal/domain"
 	"mahjong-stat-back/internal/service"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -93,5 +97,44 @@ func GetPlayersByDateHandler(svc *service.Service) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, players)
+	}
+}
+
+// DeleteRoundHandler 는 라운드 삭제 요청을 처리합니다.
+//
+// 매개변수:
+//   - svc: Service 포인터
+//
+// 반환값:
+//   - gin.HandlerFunc: Gin 에서 사용 가능한 핸들러
+func DeleteRoundHandler(svc *service.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		id, err := strconv.ParseInt(idStr, 10, 0)
+		if err != nil || id <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "invalid round id",
+			})
+			return
+		}
+
+		round, err := svc.DeleteRound(int(id))
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": "round not found",
+				})
+				return
+			}
+
+			log.Printf("failed to delete round (id=%d): %v", id, err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "failed to delete round",
+			})
+			return
+		}
+
+		// 삭제된 라운드 정보를 그대로 돌려줌
+		c.JSON(http.StatusOK, round)
 	}
 }
