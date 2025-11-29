@@ -17,6 +17,8 @@ import (
 func RegisterRoutes(r *gin.Engine, svc *service.Service) {
 	api := r.Group("/api")
 	{
+		// 시스템 관련
+		api.GET("/server-date", GetServerDateHandler())
 		players := api.Group("/players")
 		{
 			players.GET("", GetPlayersHandler(svc))

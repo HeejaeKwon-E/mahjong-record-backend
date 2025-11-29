@@ -8,6 +8,7 @@ import (
 	"mahjong-stat-back/internal/service"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -136,5 +137,25 @@ func DeleteRoundHandler(svc *service.Service) gin.HandlerFunc {
 
 		// 삭제된 라운드 정보를 그대로 돌려줌
 		c.JSON(http.StatusOK, round)
+	}
+}
+
+// GetServerDateHandler 는 서버 기준 '오늘 날짜'를 반환합니다.
+//
+// 매개변수:
+//   - 없음 (Gin 컨텍스트로부터 자동 주입)
+//
+// 반환값:
+//   - JSON: {"today": "YYYY-MM-DD"}
+func GetServerDateHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 필요하면 여기서 KST 고정도 가능:
+		// loc, _ := time.LoadLocation("Asia/Seoul")
+		// now := time.Now().In(loc)
+		now := time.Now()
+
+		c.JSON(http.StatusOK, gin.H{
+			"today": now.Format("2006-01-02"),
+		})
 	}
 }

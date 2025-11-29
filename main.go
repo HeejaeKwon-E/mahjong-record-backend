@@ -11,6 +11,7 @@ import (
 	"mahjong-stat-back/internal/service"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	_ "modernc.org/sqlite"
@@ -47,6 +48,8 @@ func loadConfig() (*Config, error) {
 }
 
 func main() {
+	loc, _ := time.LoadLocation("Asia/Seoul")
+	time.Local = loc
 	cfg, err := loadConfig()
 	if err != nil {
 		panic(err)
