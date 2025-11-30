@@ -3,6 +3,7 @@ package repository
 import (
 	"database/sql"
 	"mahjong-stat-back/internal/domain"
+	"strings"
 	"time"
 )
 
@@ -304,4 +305,108 @@ func (r *Repository) DeleteRound(id int) (*domain.Round, error) {
 
 	// 4) 삭제된 라운드 정보 반환
 	return &round, nil
+}
+
+// GetAllPlayerTotalStats 함수는 모든 플레이어의 기간별 통계를 조회합니다.
+//
+// 매개변수:
+//   - startDate: 조회 시작일(YYYY-MM-DD). 빈 문자열이면 제한 없음.
+//   - endDate: 조회 종료일(YYYY-MM-DD). 빈 문자열이면 제한 없음.
+//
+// 반환값:
+//   - []domain.PlayerTotalStats: 플레이어별 전체 통계 목록
+//   - error: 에러 정보
+func (r *Repository) GetAllPlayerTotalStats(startDate, endDate string) ([]domain.PlayerTotalStats, error) {
+	baseQuery := `
+SELECT
+    p.id            AS player_id,
+    p.name          AS name,
+    COUNT(rr.round_id)                                             AS games,
+    SUM(CASE WHEN rr.rank = 1 THEN 1 ELSE 0 END)                  AS first,
+    SUM(CASE WHEN rr.rank = 2 THEN 1 ELSE 0 END)                  AS second,
+    SUM(CASE WHEN rr.rank = 3 THEN 1 ELSE 0 END)                  AS third,
+    SUM(CASE WHEN rr.rank = 4 THEN 1 ELSE 0 END)                  AS fourth
+FROM players p
+LEFT JOIN round_results rr
+  ON p.id = rr.player_id
+LEFT JOIN rounds r
+  ON rr.round_id = r.id
+`
+
+	conds := []string{}
+	args := []any{}
+
+	if startDate != "" {
+		conds = append(conds, "r.date >= ?")
+		args = append(args, startDate)
+	}
+	if endDate != "" {
+		conds = append(conds, "r.date <= ?")
+		args = append(args, endDate)
+	}
+
+	if len(conds) > 0 {
+		baseQuery += "WHERE " + strings.Join(conds, " AND ") + "\n"
+	}
+
+	baseQuery += `
+GROUP BY p.id, p.name
+ORDER BY p.name ASC;
+`
+
+	rows, err := r.db.Query(baseQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := []domain.PlayerTotalStats{}
+
+	for rows.Next() {
+		var s domain.PlayerTotalStats
+		var games, first, second, third, fourth sql.NullInt64
+
+		if err := rows.Scan(
+			&s.PlayerID,
+			&s.Name,
+			&games,
+			&first,
+			&second,
+			&third,
+			&fourth,
+		); err != nil {
+			return nil, err
+		}
+
+		s.Games = games.Int64
+		s.First = first.Int64
+		s.Second = second.Int64
+		s.Third = third.Int64
+		s.Fourth = fourth.Int64
+		s.AvgRank = 0
+
+		if s.Games > 0 {
+			g := float64(s.Games)
+			s.FirstRate = float64(s.First) / g
+			s.Top2Rate = float64(s.First+s.Second) / g
+			s.FourthRate = float64(s.Fourth) / g
+
+			// 🔥 평균 순위 계산
+			totalRankScore :=
+				float64(s.First)*1 +
+					float64(s.Second)*2 +
+					float64(s.Third)*3 +
+					float64(s.Fourth)*4
+
+			s.AvgRank = totalRankScore / g
+		}
+
+		result = append(result, s)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }

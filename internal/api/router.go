@@ -19,6 +19,10 @@ func RegisterRoutes(r *gin.Engine, svc *service.Service) {
 	{
 		// 시스템 관련
 		api.GET("/server-date", GetServerDateHandler())
+		stats := api.Group("/stats")
+		{
+			stats.GET("/all", GetAllPlayerStatsHandler(svc))
+		}
 		players := api.Group("/players")
 		{
 			players.GET("", GetPlayersHandler(svc))

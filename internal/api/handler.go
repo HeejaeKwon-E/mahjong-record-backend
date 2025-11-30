@@ -159,3 +159,26 @@ func GetServerDateHandler() gin.HandlerFunc {
 		})
 	}
 }
+
+// GetAllPlayerStatsHandler 는 전체 기간 플레이어 통계를 반환합니다.
+//
+// 매개변수:
+//   - svc: 서비스 레이어 포인터
+//
+// 반환값:
+//   - gin.HandlerFunc
+func GetAllPlayerStatsHandler(svc *service.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		startDate := c.Query("start_date")
+		endDate := c.Query("end_date")
+		stats, err := svc.GetAllPlayerTotalStats(startDate, endDate)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "failed to load stats",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, stats)
+	}
+}

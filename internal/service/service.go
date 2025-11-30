@@ -112,3 +112,15 @@ func (s *Service) DeleteRound(id int) (*domain.Round, error) {
 	}
 	return round, nil
 }
+
+// GetAllPlayerTotalStats 함수는 전체 플레이어 통계를 반환합니다.
+//
+// 매개변수:
+//   - 없음
+//
+// 반환값:
+//   - []domain.PlayerTotalStats: 플레이어 전체 통계
+//   - error: 에러 정보
+func (s *Service) GetAllPlayerTotalStats(startDate, endDate string) ([]domain.PlayerTotalStats, error) {
+	return s.repo.GetAllPlayerTotalStats(startDate, endDate)
+}
