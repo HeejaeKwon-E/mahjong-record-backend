@@ -30,7 +30,7 @@ func (s *Service) GetPlayers() ([]domain.Player, error) {
 }
 
 func isValidPlayerName(name string) bool {
-	re := regexp.MustCompile(`^[가-힣]{1,5}\d{2}$`)
+	re := regexp.MustCompile(`^[가-힣]{2}\d{2}$`)
 	return re.MatchString(name)
 }
 
