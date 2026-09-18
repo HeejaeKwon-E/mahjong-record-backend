@@ -85,6 +85,21 @@ func (r *Repository) CreatePlayer(name string) (*domain.Player, error) {
 	return &p, nil
 }
 
+// GetPlayerByID는 플레이어 ID로 기본 정보를 조회합니다.
+// 존재하지 않는 ID는 sql.ErrNoRows를 그대로 반환해 Handler가 404로 변환할 수 있게 합니다.
+func (r *Repository) GetPlayerByID(id int) (*domain.Player, error) {
+	row := r.db.QueryRow(`SELECT id, name, created_at FROM players WHERE id = ?`, id)
+
+	var player domain.Player
+	var createdAtStr string
+	if err := row.Scan(&player.ID, &player.Name, &createdAtStr); err != nil {
+		return nil, err
+	}
+
+	player.CreatedAt = parseSQLiteTime(createdAtStr)
+	return &player, nil
+}
+
 // CreateRound는 라운드와 해당 결과를 함께 생성합니다.
 //
 // 매개변수:
@@ -141,10 +156,16 @@ func (r *Repository) CreateRound(date string, ranking []int) (int64, error) {
 //   - error: 에러 정보
 func (r *Repository) GetRoundsByDate(date string) ([]domain.Round, error) {
 	rows, err := r.db.Query(
-		`SELECT id, date, created_at 
-         FROM rounds 
-         WHERE date = ? 
-         ORDER BY created_at DESC, id DESC`,
+		`SELECT
+             r.id,
+             r.date,
+             r.created_at,
+             rr.player_id,
+             rr.rank
+         FROM rounds r
+         LEFT JOIN round_results rr ON rr.round_id = r.id
+         WHERE r.date = ?
+         ORDER BY r.created_at DESC, r.id DESC, rr.rank ASC`,
 		date,
 	)
 	if err != nil {
@@ -152,47 +173,46 @@ func (r *Repository) GetRoundsByDate(date string) ([]domain.Round, error) {
 	}
 	defer rows.Close()
 
+	// 빈 날짜 응답의 기존 JSON 형태(null)를 바꾸지 않기 위해 nil slice로 시작합니다.
 	var rounds []domain.Round
+	var currentRound *domain.Round
 
 	for rows.Next() {
 		var (
 			id           int
 			dateStr      string
 			createdAtStr string
+			playerID     sql.NullInt64
+			rank         sql.NullInt64
 		)
-		if err := rows.Scan(&id, &dateStr, &createdAtStr); err != nil {
+		if err := rows.Scan(
+			&id,
+			&dateStr,
+			&createdAtStr,
+			&playerID,
+			&rank,
+		); err != nil {
 			return nil, err
 		}
 
-		// 라운드별 등수 가져오기
-		resRows, err := r.db.Query(
-			`SELECT player_id, rank 
-             FROM round_results 
-             WHERE round_id = ? 
-             ORDER BY rank ASC`,
-			id,
-		)
-		if err != nil {
-			return nil, err
+		// JOIN 결과는 라운드별로 연속해서 오므로 ID가 바뀔 때만 새 Round를 만듭니다.
+		// 기존 구현의 "라운드 1회 조회 + 라운드마다 결과 재조회" N+1 쿼리를
+		// 단일 SQL로 줄이면서 응답 구조는 그대로 유지합니다.
+		if currentRound == nil || currentRound.ID != id {
+			rounds = append(rounds, domain.Round{
+				ID:        id,
+				Date:      dateStr,
+				CreatedAt: parseSQLiteTime(createdAtStr),
+				Ranking:   make([]int, 0, 4),
+			})
+			currentRound = &rounds[len(rounds)-1]
 		}
 
-		var ranking []int
-		for resRows.Next() {
-			var pid, rank int
-			if err := resRows.Scan(&pid, &rank); err != nil {
-				resRows.Close()
-				return nil, err
-			}
-			ranking = append(ranking, pid)
+		// LEFT JOIN을 사용해 결과가 손상된 라운드도 조회 자체는 유지합니다.
+		// 정상 데이터에서는 player_id와 rank가 항상 함께 존재합니다.
+		if playerID.Valid && rank.Valid {
+			currentRound.Ranking = append(currentRound.Ranking, int(playerID.Int64))
 		}
-		resRows.Close()
-
-		rounds = append(rounds, domain.Round{
-			ID:        id,
-			Date:      dateStr,
-			CreatedAt: parseSQLiteTime(createdAtStr),
-			Ranking:   ranking,
-		})
 	}
 
 	return rounds, rows.Err()
@@ -317,39 +337,41 @@ func (r *Repository) DeleteRound(id int) (*domain.Round, error) {
 //   - []domain.PlayerTotalStats: 플레이어별 전체 통계 목록
 //   - error: 에러 정보
 func (r *Repository) GetAllPlayerTotalStats(startDate, endDate string) ([]domain.PlayerTotalStats, error) {
+	// 날짜 인덱스로 rounds를 먼저 제한한 뒤 필요한 player_id/rank만 집계 대상으로
+	// 올립니다. 좁은 기간을 조회할 때 전체 round_results를 플레이어별로 훑는 일을
+	// 줄이면서 바깥 LEFT JOIN으로 0게임 플레이어는 계속 유지합니다.
+	filteredResultsQuery := `
+SELECT rr.player_id, rr.rank
+FROM rounds r
+JOIN round_results rr ON rr.round_id = r.id`
+
+	conditions := make([]string, 0, 2)
+	args := make([]any, 0, 2)
+	if startDate != "" {
+		conditions = append(conditions, "r.date >= ?")
+		args = append(args, startDate)
+	}
+	if endDate != "" {
+		conditions = append(conditions, "r.date <= ?")
+		args = append(args, endDate)
+	}
+	if len(conditions) > 0 {
+		filteredResultsQuery += "\nWHERE " + strings.Join(conditions, " AND ")
+	}
+
 	baseQuery := `
 SELECT
     p.id            AS player_id,
     p.name          AS name,
-    COUNT(rr.round_id)                                             AS games,
-    SUM(CASE WHEN rr.rank = 1 THEN 1 ELSE 0 END)                  AS first,
-    SUM(CASE WHEN rr.rank = 2 THEN 1 ELSE 0 END)                  AS second,
-    SUM(CASE WHEN rr.rank = 3 THEN 1 ELSE 0 END)                  AS third,
-    SUM(CASE WHEN rr.rank = 4 THEN 1 ELSE 0 END)                  AS fourth
+    COUNT(fr.player_id)                                  AS games,
+    SUM(CASE WHEN fr.rank = 1 THEN 1 ELSE 0 END)         AS first,
+    SUM(CASE WHEN fr.rank = 2 THEN 1 ELSE 0 END)         AS second,
+    SUM(CASE WHEN fr.rank = 3 THEN 1 ELSE 0 END)         AS third,
+    SUM(CASE WHEN fr.rank = 4 THEN 1 ELSE 0 END)         AS fourth
 FROM players p
-LEFT JOIN round_results rr
-  ON p.id = rr.player_id
-LEFT JOIN rounds r
-  ON rr.round_id = r.id
-`
+LEFT JOIN (` + filteredResultsQuery + `) fr
+  ON p.id = fr.player_id
 
-	conds := []string{}
-	args := []any{}
-
-	if startDate != "" {
-		conds = append(conds, "r.date >= ?")
-		args = append(args, startDate)
-	}
-	if endDate != "" {
-		conds = append(conds, "r.date <= ?")
-		args = append(args, endDate)
-	}
-
-	if len(conds) > 0 {
-		baseQuery += "WHERE " + strings.Join(conds, " AND ") + "\n"
-	}
-
-	baseQuery += `
 GROUP BY p.id, p.name
 ORDER BY p.name ASC;
 `
@@ -409,4 +431,64 @@ ORDER BY p.name ASC;
 	}
 
 	return result, nil
+}
+
+// GetPlayerRoundResults는 개인 통계 계산에 필요한 라운드 원천 결과를 조회합니다.
+// 날짜 오름차순으로 정렬해 Service가 일별 집계를 한 번의 순회로 만들 수 있게 합니다.
+func (r *Repository) GetPlayerRoundResults(
+	playerID int,
+	startDate string,
+	endDate string,
+) ([]domain.PlayerRoundResult, error) {
+	query := `
+SELECT
+    r.id,
+    r.date,
+    rr.rank,
+    r.created_at
+FROM round_results rr
+JOIN rounds r ON r.id = rr.round_id
+WHERE rr.player_id = ?
+`
+
+	args := []any{playerID}
+	if startDate != "" {
+		query += " AND r.date >= ?\n"
+		args = append(args, startDate)
+	}
+	if endDate != "" {
+		query += " AND r.date <= ?\n"
+		args = append(args, endDate)
+	}
+
+	query += "ORDER BY r.date ASC, r.created_at ASC, r.id ASC"
+
+	rows, err := r.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	results := make([]domain.PlayerRoundResult, 0)
+	for rows.Next() {
+		var result domain.PlayerRoundResult
+		var createdAtStr string
+		if err := rows.Scan(
+			&result.RoundID,
+			&result.Date,
+			&result.Rank,
+			&createdAtStr,
+		); err != nil {
+			return nil, err
+		}
+
+		result.CreatedAt = parseSQLiteTime(createdAtStr)
+		results = append(results, result)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }

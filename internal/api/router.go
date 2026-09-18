@@ -22,6 +22,7 @@ func RegisterRoutes(r *gin.Engine, svc *service.Service) {
 		stats := api.Group("/stats")
 		{
 			stats.GET("/all", GetAllPlayerStatsHandler(svc))
+			stats.GET("/players/:playerId/history", GetPlayerStatsHistoryHandler(svc))
 		}
 		players := api.Group("/players")
 		{

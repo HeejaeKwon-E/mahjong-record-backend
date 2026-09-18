@@ -173,6 +173,13 @@ func GetAllPlayerStatsHandler(svc *service.Service) gin.HandlerFunc {
 		endDate := c.Query("end_date")
 		stats, err := svc.GetAllPlayerTotalStats(startDate, endDate)
 		if err != nil {
+			if errors.Is(err, service.ErrInvalidDateFormat) ||
+				errors.Is(err, service.ErrInvalidDateRange) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+
+			log.Printf("failed to load all player stats: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "failed to load stats",
 			})
@@ -180,5 +187,45 @@ func GetAllPlayerStatsHandler(svc *service.Service) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, stats)
+	}
+}
+
+// GetPlayerStatsHistoryHandler는 플레이어 한 명의 기간별 상세 통계를 반환합니다.
+//
+// path:
+//   - playerId: 조회할 플레이어 ID
+//
+// query:
+//   - start_date: 선택, YYYY-MM-DD
+//   - end_date: 선택, YYYY-MM-DD
+func GetPlayerStatsHistoryHandler(svc *service.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		playerID, err := strconv.Atoi(c.Param("playerId"))
+		if err != nil || playerID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid player id"})
+			return
+		}
+
+		history, err := svc.GetPlayerStatsHistory(
+			playerID,
+			c.Query("start_date"),
+			c.Query("end_date"),
+		)
+		if err != nil {
+			switch {
+			case errors.Is(err, sql.ErrNoRows):
+				c.JSON(http.StatusNotFound, gin.H{"error": "player not found"})
+			case errors.Is(err, service.ErrInvalidPlayerID),
+				errors.Is(err, service.ErrInvalidDateFormat),
+				errors.Is(err, service.ErrInvalidDateRange):
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			default:
+				log.Printf("failed to load player stats (player_id=%d): %v", playerID, err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load player stats"})
+			}
+			return
+		}
+
+		c.JSON(http.StatusOK, history)
 	}
 }

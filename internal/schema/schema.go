@@ -36,6 +36,15 @@ CREATE TABLE IF NOT EXISTS round_results (
   FOREIGN KEY (round_id) REFERENCES rounds(id) ON DELETE CASCADE,
   FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
 );
+
+-- 개인 통계는 player_id로 모든 참여 라운드를 조회하므로 역방향 인덱스가 필요합니다.
+-- 기존 기본키(round_id, player_id)만으로는 데이터가 늘어날수록 전체 스캔이 발생합니다.
+CREATE INDEX IF NOT EXISTS idx_round_results_player_id
+  ON round_results(player_id, round_id);
+
+-- 기간 필터와 날짜/기록 시각 정렬에 사용하는 인덱스입니다.
+CREATE INDEX IF NOT EXISTS idx_rounds_date_created_at
+  ON rounds(date, created_at, id);
 `
 	_, err := db.Exec(schema)
 	return err
