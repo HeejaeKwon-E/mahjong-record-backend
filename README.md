@@ -1,260 +1,188 @@
-# Mahjong Record Backend (Go + SQLite)
+# Mahjong Record Backend (Rust + Axum + SQLite)
 
-모바일 마작 기록 웹앱을 위한 **백엔드 서버**입니다.  
-프론트엔드는 React + TypeScript + Tailwind CSS 기반, 백엔드는 **Go + Gin + SQLite** 기반으로 설계되었습니다.
+기존 `mahjong-stat-back` Go 서버를 **프론트엔드/API/SQLite 테이블 변경 없이** Rust로 대체하는 구현입니다.
 
-이 서버는 다음과 같은 역할을 담당합니다:
+## Rust 관용구 개선판 안내
 
-- 플레이어 CRUD 관리
-- 날짜별 플레이어 조회
-- 라운드 기록 저장/조회
-- “오늘 날짜만 라운드 저장 허용” 검증
-- 프론트엔드 정적 파일(Vite build) 서빙
-
----
-
-## ✨ 주요 기능
-
-### 🧩 플레이어 관리 API
-
-| 메서드 | 엔드포인트                             | 설명                             |
-| ------ | -------------------------------------- | -------------------------------- |
-| `GET`  | `/api/players`                         | 전체 플레이어 목록 조회          |
-| `POST` | `/api/players`                         | 플레이어 추가 (이름 중복 불가)   |
-| `GET`  | `/api/players/by-date?date=YYYY-MM-DD` | 특정 날짜에 등장한 플레이어 목록 |
-
-플레이어 추가 시 프론트와 백엔드 모두 **한글 이름 2자 + 출생연도 2자리** 형식을
-검증하며, DB의 `UNIQUE` 제약으로 중복 이름을 차단합니다.
-
----
-
-### 🀄 라운드 기록 API
-
-| 메서드 | 엔드포인트                            | 설명                               |
-| ------ | ------------------------------------- | ---------------------------------- |
-| `POST` | `/api/rounds`                         | 라운드 저장 — 단, 오늘 날짜만 허용 |
-| `GET`  | `/api/rounds/by-date?date=YYYY-MM-DD` | 특정 날짜의 모든 라운드 조회       |
-
-### 📈 통계 API
-
-| 메서드 | 엔드포인트                                                   | 설명                           |
-| ------ | ------------------------------------------------------------ | ------------------------------ |
-| `GET`  | `/api/stats/all?start_date=&end_date=`                       | 기간별 전체 플레이어 요약 통계 |
-| `GET`  | `/api/stats/players/:playerId/history?start_date=&end_date=` | 플레이어 개인 상세 통계        |
-
-`start_date`, `end_date`는 선택 값이며 형식은 `YYYY-MM-DD`입니다. 두 값을 모두
-전달하면 시작일과 종료일을 포함해 조회합니다.
-
-개인 상세 통계 요청 예시:
+기존 Go→Rust 1차 이식의 API, 프론트엔드 및 SQLite 파일 형식을 유지하면서 쿼리 타입(`DateQuery`/`DateRangeQuery`), SQLx `FromRow`, `thiserror`, `NaiveDate` 내부 검증, 파싱 실패 전파를 적용했습니다. **자세한 변경 파일·의도적인 오류 동작 차이·검증 방법은 [RUST_REFACTOR_NOTES.md](RUST_REFACTOR_NOTES.md)에 있습니다.**
 
 ```bash
-curl "http://localhost:8080/api/stats/players/1/history?start_date=2026-01-01&end_date=2026-09-30"
+# Cargo.lock이 없는 새 체크아웃에서 처음 한 번 실행
+cargo generate-lockfile
+# Rust 스타일 검사, Clippy, 컴파일, 디버그/릴리스 테스트
+bash scripts/verify.sh
 ```
 
-응답 예시:
+**참고:** 이 환경에는 Rust 컴파일러가 없어 `cargo check/test/clippy`를 직접 실행하지 못했습니다. 각 검사의 실제 통과 여부는 사용자 환경에서 확인해야 합니다.
+
+## 1. 변경된 파일
+
+| 파일 | 내용 |
+|---|---|
+| `src/main.rs` | `config.json` 로드, DB 연결, HTTP 서버 시작 |
+| `src/api/mod.rs` | Gin의 9개 REST API를 Axum으로 구현, 웹 정적 파일 서빙 |
+| `src/domain/mod.rs` | JSON 모델, 타입 지정 쿼리 DTO 및 날짜 범위 |
+| `src/service/mod.rs` | 한국 날짜 기준 기록 검증, 사용자명 검증, 통계 계산 |
+| `src/repository/mod.rs` | 기존 SQLite 쿼리, FromRow, timestamp 검증, INSERT/DELETE 트랜잭션 |
+| `src/schema/mod.rs` | 기존 3테이블 및 2인덱스 (IF NOT EXISTS) |
+| `tests/api_compat.rs` | Axum HTTP/API/SQLite 및 타입·타임스탬프 회귀 테스트 |
+| `scripts/smoke.sh` | 서버 실행 후 간단한 curl 검사 |
+| `scripts/verify.sh` | Cargo fmt/check/clippy/test/release 테스트 묶음 |
+| `config.json` | 기존 Go와 동일한 설정 (`mode`, `port`) |
+
+Go 프로젝트의 `go.mod` 및 소스 파일을 Rust 프로젝트로 옮기지 않았습니다. 원래 Go 백엔드는 따로 보관하고, Rust 백엔드는 새 폴더에서 실행하세요.
+
+## 2. 준비 환경
+
+- Rust 안정판 + Cargo (`rustup` 권장)
+- macOS / Ubuntu / Windows (Rust 빌드 대상)
+- SQLite 파일은 자동 생성됨 (별도 DB 서버 불필요)
+- 프론트 빌드에는 Node.js, npm 필요
+
+```bash
+cargo --version
+rustc --version
+```
+
+### 실행
+
+```bash
+cd mahjong-stat-back-rust
+cargo check
+cargo test
+cargo run
+```
+
+`config.json` 기본값:
 
 ```json
 {
-  "player": {
-    "id": 1,
-    "name": "희재93",
-    "created_at": "2026-01-01T00:00:00Z"
-  },
-  "summary": {
-    "games": 184,
-    "avg_rank": 2.32,
-    "first_rate": 0.315,
-    "top2_rate": 0.571,
-    "fourth_rate": 0.207
-  },
-  "rank_counts": {
-    "first": 58,
-    "second": 47,
-    "third": 41,
-    "fourth": 38
-  },
-  "daily": [
-    {
-      "date": "2026-09-01",
-      "games": 5,
-      "first": 2,
-      "second": 1,
-      "third": 1,
-      "fourth": 1,
-      "avg_rank": 2.4
-    }
-  ],
-  "recent_rounds": [
-    {
-      "round_id": 201,
-      "date": "2026-09-01",
-      "rank": 1,
-      "created_at": "2026-09-01T20:30:00Z"
-    }
-  ]
-}
-```
-
-`recent_rounds`는 선택 기간 안에서 최신순 최대 50게임을 반환합니다. 프론트에서는
-이를 최근 10/20/50게임으로 전환해 볼 수 있습니다. `daily`는
-기존 API 호환성을 위해 날짜 오름차순으로 유지하지만 현재 프론트에서는 사용하지 않습니다.
-
-오류 응답:
-
-| 상태 코드 | 조건                                 | 응답 예시                                              |
-| --------- | ------------------------------------ | ------------------------------------------------------ |
-| `400`     | 플레이어 ID가 숫자가 아니거나 0 이하 | `{"error":"invalid player id"}`                        |
-| `400`     | 날짜 형식이 잘못됨                   | `{"error":"invalid date format; expected YYYY-MM-DD"}` |
-| `400`     | 시작일이 종료일보다 늦음             | `{"error":"start_date must not be after end_date"}`    |
-| `404`     | 플레이어가 존재하지 않음             | `{"error":"player not found"}`                         |
-| `500`     | DB 조회 실패                         | `{"error":"failed to load player stats"}`              |
-
-**라운드 저장 제한 규칙:**
-
-- 백엔드는 `POST /api/rounds` 요청 시 `date == 오늘` 인지 검증
-- 플레이어 수는 프론트에서 4명 고정으로 제한하지만, 백엔드에서도 다시 확인 가능
-- 기록 가능 날짜는 서버의 **Asia/Seoul** 기준 오늘로 검증
-- `created_at`은 SQLite `CURRENT_TIMESTAMP` 형식으로 저장
-
----
-
-## 🗂 기술 스택
-
-- **언어**: Go 1.24+
-- **웹 프레임워크**: Gin
-- **DB**: SQLite3 (`modernc.org/sqlite`, pure Go)
-- **ORM**: 없음 (직접 SQL 사용)
-- **빌드 도구**: Go Modules
-- **정적 파일 빌드/서빙**: Vite → `web/dist/` → Gin StaticFile
-
----
-
-## 📁 프로젝트 구조 예시
-
-```
-/mahjong-stat-back
- ├── main.go
- ├── internal/
- │    ├── api/
- │    ├── domain/
- │    ├── repository/
- │    ├── schema/
- │    └── service/
- ├── web/
- │    └── dist/ ← 프론트엔드 빌드 결과
- ├── go.mod
- └── config.json
-```
-
----
-
-## ⚙️ config.json (모드 스위칭 가능)
-
-```json
-{
-  "mode": "release",
+  "mode": "debug",
   "port": 8080
 }
 ```
 
-### 모드 설정
+`mode=debug`일 때 상세 로그, 그 외 모드에서는 일반 로그를 기록합니다. 로그 수준은 `RUST_LOG=debug` 등으로 덮어쓸 수 있습니다.
 
-- `"debug"` → 개발용 (로그 등 자세하게 출력)
-- `"release"` → 배포용 (Gin ReleaseMode)
+**중요:** 실행 디렉터리가 `mahjong-stat-back-rust`여야 하며, 이 디렉터리에서 `config.json`, `mahjong.db`, `web/dist`를 찾습니다.
 
----
+### 기존 Go DB 데이터 이어받기
 
-## 🚀 로컬 실행
-
-### 1) 모듈 설치
+먼저 Go 서버를 중지하고 기존 SQLite의 `.db` 파일을 복사하세요.
 
 ```bash
-go mod tidy
+# Go 서버 종료 후 실행. 경로는 사용 환경에 맞게 변경하세요.
+cp ../mahjong-stat-back/mahjong.db ./mahjong.db
 ```
 
-### 2) 개발 모드 실행
+`mahjong.db`의 경로, 테이블명(`players`, `rounds`, `round_results`), 인덱스와 컬럼은 변경하지 않습니다. 백업을 안전하게 유지하고 Rust로 테스트를 마친 뒤 전환하세요.
+
+### 프론트 통합 배포
 
 ```bash
-go run main.go
-```
-
-### 3) 릴리즈 빌드
-
-```bash
-go build -o mahjong-server
-./mahjong-server
-```
-
----
-
-## 🛠 CORS
-
-프론트엔드를 같은 서버에서 서빙하므로 기본적으로 CORS 이슈가 없습니다.  
-외부 도메인 접근 시에는 아래처럼 CORS 등록이 필요할 수 있습니다:
-
-```go
-r.Use(cors.Default())
-```
-
----
-
-## 📦 프론트엔드 배포 연동
-
-1. 프론트에서는 다음 실행:
-
-```bash
+cd ../mahjong-stat-front
+npm install
 npm run build
+
+cd ../mahjong-stat-back-rust
+mkdir -p web/dist
+cp -R ../mahjong-stat-front/dist/. web/dist/
+cargo run --release
 ```
 
-2. 나온 `dist/` 폴더 전체를 백엔드의 `web/dist/`로 복사
+개발 서버로 프론트가 실행 중인 경우에도 `vite.config.ts`의 `/api` 프록시가 그대로 `localhost:8080`으로 전달되므로 **프론트 코드는 수정할 필요가 없습니다.**
 
+브라우저: `http://localhost:8080/`
+
+## 3. API Usage
+
+**기존 9개 엔드포인트/HTTP 상태 코드/JSON 필드명을 유지합니다.**
+
+| Method | Path | 성공 응답 |
+|---|---|---|
+| GET | `/api/server-date` | `{"today":"YYYY-MM-DD"}` |
+| GET | `/api/players` | `[Player,...]`, 데이터 없을 때 `null` |
+| POST | `/api/players` | 생성 `Player`, `200` |
+| GET | `/api/players/by-date?date=...` | `[Player,...]`, 데이터 없을 때 `null` |
+| POST | `/api/rounds` | `{"round_id":1}`, `200` |
+| GET | `/api/rounds/by-date?date=...` | `[Round,...]`, 데이터 없을 때 `null` |
+| DELETE | `/api/rounds/1` | 삭제된 `Round`, `200` |
+| GET | `/api/stats/all?start_date=&end_date=` | `[PlayerTotalStats,...]`, 데이터 없을 때 `[]` |
+| GET | `/api/stats/players/1/history?start_date=&end_date=` | `PlayerStatsHistory` |
+
+**Player** 응답: `{"id":1,"name":"희재93","created_at":"2026-10-08T06:00:00Z"}`
+
+**Round** 응답: `{"id":1,"date":"2026-10-08","created_at":"2026-10-08T06:00:00Z","ranking":[1,2,3,4]}`
+
+**PlayerTotalStats** 필드: `player_id`, `name`, `games`, `first`, `second`, `third`, `fourth`, `first_rate`, `top2_rate`, `fourth_rate`, `avg_rank`.
+
+**PlayerStatsHistory** 필드: `player`, `summary`, `rank_counts`, `daily`, `recent_rounds`. 최근 기록은 조회 기간 내 최대 50건·최신순, `daily`는 날짜 오름차순입니다.
+
+### 호출 예시
+
+```bash
+# 오늘 날짜 확인
+curl -s http://localhost:8080/api/server-date
+
+# 플레이어 등록 (한글 완성형 두 글자 + ASCII 숫자 두 자리)
+curl -s -X POST http://localhost:8080/api/players \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"희재93"}'
+
+# 4명 플레이어가 등록되어 있어야 성공합니다.
+# 날짜는 GET /api/server-date 결과를 사용하세요.
+curl -s -X POST http://localhost:8080/api/rounds \
+  -H 'Content-Type: application/json' \
+  -d '{"date":"2026-10-08","ranking":[1,2,3,4]}'
+
+curl -s 'http://localhost:8080/api/rounds/by-date?date=2026-10-08'
+curl -s 'http://localhost:8080/api/stats/all?start_date=2026-01-01&end_date=2026-12-31'
+curl -s 'http://localhost:8080/api/stats/players/1/history'
+curl -s -X DELETE http://localhost:8080/api/rounds/1
 ```
-/mahjong-backend/web/dist
+
+### 오류 예시
+
+| 상황 | 상태 | 오류 JSON |
+|---|---|---|
+| 잘못된 JSON 필드 | 400 | `{"error":"invalid payload"}` |
+| 잘못된 이름 | 400 | `{"error":"형식: 한글이름 + 2자리 연도"}` |
+| 과거 날짜로 라운드 저장 | 400 | `{"error":"라운드는 오늘 날짜에만 저장할 수 있습니다"}` |
+| 라운드 사용자 수 != 4 | 400 | `{"error":"ranking must have exactly 4 players"}` |
+| 날짜 쿼리 없음 | 400 | `{"error":"date query is required"}` |
+| 잘못된 통계 날짜 | 400 | `{"error":"invalid date format; expected YYYY-MM-DD"}` |
+| 시작일 > 종료일 | 400 | `{"error":"start_date must not be after end_date"}` |
+| 없는 개인 통계 ID | 404 | `{"error":"player not found"}` |
+| 없는 라운드 ID 삭제 | 404 | `{"error":"round not found"}` |
+| 알 수 없는 `/api/...` 경로 | 404 | `{"error":"not found"}` |
+| 통계 조회 중 DB 오류 | 500 | `{"error":"failed to load stats"}` |
+
+**알려진 차이:** UNIQUE/FK 제약 충돌 시, 기존 Go `modernc.org/sqlite`와 Rust SQLx의 DB 오류 문자열이 다를 수 있습니다. 상태 코드(400)와 JSON `error` 필드는 동일하나, DB 드라이버가 만든 메시지 원문까지 바이트 단위로 동일하지는 않습니다.
+
+## 4. 검증 및 회귀 테스트
+
+```bash
+cargo fmt --all
+cargo fmt --all -- --check
+cargo check
+cargo test
+cargo run --release
+# 다른 터미널에서:
+bash scripts/smoke.sh
 ```
 
-3. Go 서버에서 정적 파일 제공:
+중요한 검증 사항:
 
-```go
-r.Static("/assets", "./web/dist/assets")
-r.StaticFile("/", "./web/dist/index.html")
-```
+1. GET 전체 플레이어/날짜별 플레이어/날짜별 라운드의 빈 결과가 `null`인지 확인
+2. GET 전체 통계의 빈 결과는 `[]`인지 확인
+3. 오늘(Asia/Seoul)만 라운드 저장 가능한지 확인
+4. FK 실패 시 라운드/결과가 둘 다 롤백되는지 확인
+5. `recent_rounds` 최근 50개 제한과 최신순 정렬 확인
+6. 데이터 없는 플레이어도 전체 통계에 0게임으로 표시되는지 확인
+7. DELETE 이후 `round_results`도 CASCADE 삭제되는지 확인
+8. 브라우저 새로고침으로 `/record`, `/stats` 등 SPA 경로 유지 확인
+9. 날짜 경계(한국 시간 자정 전후) 및 `created_at` UTC/프론트 표시 일치 확인
 
----
+문제 발생 시 `RUST_LOG=debug cargo run`으로 로그 확인. DB 스키마 확인은 `sqlite3 mahjong.db '.schema'`, 파일 확인은 `ls -l mahjong.db`.
 
-## 📝 라운드 데이터 저장 구조
-
-- 라운드와 등수는 정규화된 두 테이블에 저장합니다.
-
-| 컬럼                      | 타입       | 설명        |
-| ------------------------- | ---------- | ----------- |
-| `rounds.id`               | INTEGER PK | 라운드 ID   |
-| `rounds.date`             | TEXT       | YYYY-MM-DD  |
-| `rounds.created_at`       | DATETIME   | 저장 시각   |
-| `round_results.round_id`  | INTEGER FK | 라운드 ID   |
-| `round_results.player_id` | INTEGER FK | 플레이어 ID |
-| `round_results.rank`      | INTEGER    | 1~4위       |
-
-프론트에서 보내는 JSON:
-
-```json
-{
-  "date": "2025-11-17",
-  "ranking": [3, 1, 4, 2]
-}
-```
-
----
-
-## 🔒 라운드 저장 안전 장치
-
-백엔드에서 다음 검증을 수행합니다:
-
-1. **요청 날짜 == 오늘 날짜인지 검사**
-2. player_id가 존재하는 플레이어인지 확인
-3. 배열 길이가 정확히 4인지 검사
-
----
-
-## License
-
-MIT 또는 원하는 내용으로 수정 가능합니다.
+**주의:** 이 작업 환경에서는 Cargo/Rust 컴파일러가 없어 직접 `cargo check` 또는 `cargo test`를 수행하지 못했습니다. Rust 실행 환경에서 위 명령으로 최종 빌드와 통합 테스트가 반드시 필요합니다. README의 성공 동작 예시는 확인 대상으로 제시한 것이지 이 환경에서 실행하여 확인된 결과를 의미하지 않습니다.
